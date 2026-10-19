@@ -6296,6 +6296,7 @@ pub fn compile_host_bindings_for_linker(
     selector: Option<&str>,
     pool_starting_index: u32,
     core_namespace: &str,
+    angular_version: Option<crate::AngularVersion>,
 ) -> Option<LinkerHostBindingOutput> {
     let allocator = Allocator::default();
     let result = compile_host_bindings_from_input(
@@ -6305,8 +6306,10 @@ pub fn compile_host_bindings_for_linker(
         component_name,
         selector,
         pool_starting_index,
-        None, // Linker always targets latest Angular version
-        None, // legacyOptionalChaining: derive from (absent) version
+        angular_version,
+        // `?.` semantics follow the declaration's own `version` in Angular's linker, not
+        // the application's, so `angular_version` must not switch them: keep legacy.
+        Some(true),
     )?;
 
     let emitter = JsEmitter::with_core_namespace(core_namespace);
@@ -6370,6 +6373,7 @@ pub fn compile_template_for_linker<'a>(
     file_path: &str,
     preserve_whitespaces: bool,
     core_namespace: &str,
+    angular_version: Option<crate::AngularVersion>,
 ) -> Result<LinkerTemplateOutput, std::vec::Vec<OxcDiagnostic>> {
     use crate::pipeline::ingest::{IngestOptions, ingest_component_with_options};
     use oxc_allocator::FromIn;
@@ -6406,7 +6410,7 @@ pub fn compile_template_for_linker<'a>(
     // Stage 2: Transform HTML to R3 AST
     let r3_transform_options = R3TransformOptions {
         collect_comment_nodes: parse_options.collect_comment_nodes,
-        angular_version: None,
+        angular_version,
     };
     let transformer = HtmlToR3Transform::new(allocator, template, r3_transform_options);
     let r3_result = transformer.transform(nodes);
@@ -6429,8 +6433,10 @@ pub fn compile_template_for_linker<'a>(
         template_source: Some(template),
         all_deferrable_deps_fn: None,
         pool_starting_index: 0,
-        angular_version: None,
-        legacy_optional_chaining: None,
+        angular_version,
+        // `?.` semantics follow the declaration's own `version` in Angular's linker, not
+        // the application's, so `angular_version` must not switch them: keep legacy.
+        legacy_optional_chaining: Some(true),
     };
 
     let component_name_atom = Ident::from_in(component_name, &allocator);

@@ -1,4 +1,4 @@
-import { linkAngularPackage } from '#binding'
+import { linkAngularPackage, type AngularVersion } from '#binding'
 import type { Plugin, ResolvedConfig } from 'vite'
 
 /**
@@ -88,8 +88,9 @@ function createExcludeFilter(exclude: readonly string[]): (id: string) => boolea
 async function linkCode(
   code: string,
   id: string,
+  angularVersion: AngularVersion | undefined,
 ): Promise<{ code: string; map: string | null; linked: boolean }> {
-  const result = await linkAngularPackage(code, id)
+  const result = await linkAngularPackage(code, id, { angularVersion })
   return {
     code: result.linked ? result.code : code,
     map: result.map ?? null,
@@ -97,7 +98,12 @@ async function linkCode(
   }
 }
 
-export function angularLinkerPlugin(): Plugin {
+export interface AngularLinkerPluginOptions {
+  /** Angular version of the application, forwarded to the linker. Assumes latest when unset. */
+  angularVersion?: AngularVersion
+}
+
+export function angularLinkerPlugin({ angularVersion }: AngularLinkerPluginOptions = {}): Plugin {
   let optimizeDepsExclude: readonly string[] = []
 
   return {
@@ -144,7 +150,7 @@ export function angularLinkerPlugin(): Plugin {
                       return
                     }
 
-                    const result = await linkCode(code, id)
+                    const result = await linkCode(code, id, angularVersion)
 
                     if (!result.linked) {
                       return
@@ -183,7 +189,7 @@ export function angularLinkerPlugin(): Plugin {
           return
         }
 
-        const result = await linkCode(code, id)
+        const result = await linkCode(code, id, angularVersion)
 
         if (!result.linked) {
           return
