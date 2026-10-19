@@ -125,4 +125,34 @@ export class SafeNavCombinedComponent {
     `.trim(),
     expectedFeatures: ['ɵɵtextInterpolate1'],
   },
+  {
+    name: 'safe-nav-migration-in-listener',
+    category: 'regressions',
+    description: '$safeNavigationMigration in listeners reading template locals',
+    className: 'SafeNavMigrationInListenerComponent',
+    type: 'full-transform',
+    sourceCode: `
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-safe-nav-migration-in-listener',
+  standalone: true,
+  template: \`
+      @for (option of options; track $index) {
+        <button (click)="pick($safeNavigationMigration(option?.value))">{{ option?.label }}</button>
+      }
+      @if (user; as u) {
+        <button (click)="save($event, $safeNavigationMigration(u?.flags?.verified))">Save</button>
+      }
+    \`,
+})
+export class SafeNavMigrationInListenerComponent {
+  options: Array<{ value: string; label: string } | null> = [];
+  user: { flags?: { verified: boolean } } | null = null;
+  pick(value: string | null) {}
+  save(event: Event, verified: boolean | null) {}
+}
+    `.trim(),
+    expectedFeatures: ['ɵɵlistener', 'ɵɵrestoreView'],
+  },
 ]

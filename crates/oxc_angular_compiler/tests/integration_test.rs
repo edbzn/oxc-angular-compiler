@@ -2339,6 +2339,40 @@ fn test_safe_navigation_migration_ignores_qualified_call() {
     );
 }
 
+#[test]
+fn test_safe_navigation_migration_in_listener_reads_template_locals() {
+    // Inside a listener, the wrapped expression must resolve template locals
+    // (`@for` items, `@if ... as` aliases) to the restored-view variables, like
+    // any other listener expression, instead of falling back to `ctx.<name>`.
+    let js = compile_template_to_js_with_version(
+        r#"@for (option of options; track $index) {
+  <button (click)="pick($safeNavigationMigration(option?.value))"></button>
+}
+@if (user; as u) {
+  <button (click)="save($safeNavigationMigration(u?.id))"></button>
+}"#,
+        "TestComponent",
+        Some(AngularVersion::new(22, 0, 0)),
+    );
+    assert!(
+        !js.contains("ctx.option ==") && !js.contains("ctx.option.value"),
+        "`option` must not be read from the context, got:\n{js}"
+    );
+    assert!(
+        !js.contains("ctx.u ==") && !js.contains("ctx.u.id"),
+        "`u` must not be read from the context, got:\n{js}"
+    );
+    assert!(
+        js.contains(".pick(((option_r") && js.contains("== null)? null: option_r"),
+        "`option` must be read from the restored view with legacy null semantics, got:\n{js}"
+    );
+    assert!(
+        js.contains(".save(((u_r") && js.contains("== null)? null: u_r"),
+        "`u` must be read from the restored view with legacy null semantics, got:\n{js}"
+    );
+    assert!(!js.contains("$safeNavigationMigration"), "the wrapper must be stripped, got:\n{js}");
+}
+
 // ============================================================================
 // Event Modifier Tests
 // ============================================================================
