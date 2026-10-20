@@ -2345,55 +2345,70 @@ fn test_safe_navigation_migration_in_listener_reads_template_locals() {
     // (`@for` items, `@if ... as` aliases, `let-` variables, `#ref`s, `@let`s) to
     // the restored-view variables, like any other listener expression, instead of
     // falling back to `ctx.<name>`.
-    // (template, declaration of the local, read inside the wrapper, old context read)
+    // (template, statements of the listener body, old context read)
     let cases = [
         (
             r#"@for (option of options; track $index) {
   <button (click)="pick($safeNavigationMigration(option?.value))"></button>
 }"#,
-            "const option_r2 = i0.ɵɵrestoreView(_r1).$implicit;",
-            "ctx_r2.pick(((option_r2 == null)? null: option_r2.value))",
+            [
+                "const option_r2 = i0.ɵɵrestoreView(_r1).$implicit;",
+                "const ctx_r2 = i0.ɵɵnextContext();",
+                "return i0.ɵɵresetView(ctx_r2.pick(((option_r2 == null)? null: option_r2.value)));",
+            ],
             "ctx.option.value",
         ),
         (
             r#"@if (user; as u) {
   <button (click)="save($safeNavigationMigration(u?.id))"></button>
 }"#,
-            "const u_r2 = i0.ɵɵrestoreView(_r1);",
-            "ctx_r2.save(((u_r2 == null)? null: u_r2.id))",
+            [
+                "const u_r2 = i0.ɵɵrestoreView(_r1);",
+                "const ctx_r2 = i0.ɵɵnextContext();",
+                "return i0.ɵɵresetView(ctx_r2.save(((u_r2 == null)? null: u_r2.id)));",
+            ],
             "ctx.u.id",
         ),
         (
             r#"<ng-template let-item>
   <button (click)="pick($safeNavigationMigration(item?.value))"></button>
 </ng-template>"#,
-            "const item_r2 = i0.ɵɵrestoreView(_r1).$implicit;",
-            "ctx_r2.pick(((item_r2 == null)? null: item_r2.value))",
+            [
+                "const item_r2 = i0.ɵɵrestoreView(_r1).$implicit;",
+                "const ctx_r2 = i0.ɵɵnextContext();",
+                "return i0.ɵɵresetView(ctx_r2.pick(((item_r2 == null)? null: item_r2.value)));",
+            ],
             "ctx.item.value",
         ),
         (
             r#"<input #box />
 <button (click)="pick($safeNavigationMigration(box?.value))"></button>"#,
-            "const box_r2 = i0.ɵɵreference(1);",
-            "ctx.pick(((box_r2 == null)? null: box_r2.value))",
+            [
+                "i0.ɵɵrestoreView(_r1);",
+                "const box_r2 = i0.ɵɵreference(1);",
+                "return i0.ɵɵresetView(ctx.pick(((box_r2 == null)? null: box_r2.value)));",
+            ],
             "ctx.box.value",
         ),
         (
             r#"@let v = user?.profile;
 <button (click)="pick($safeNavigationMigration(v?.name))"></button>"#,
-            "const v_r2 = i0.ɵɵreadContextLet(0);",
-            "ctx.pick(((v_r2 == null)? null: v_r2.name))",
+            [
+                "i0.ɵɵrestoreView(_r1);",
+                "const v_r2 = i0.ɵɵreadContextLet(0);",
+                "return i0.ɵɵresetView(ctx.pick(((v_r2 == null)? null: v_r2.name)));",
+            ],
             "ctx.v.name",
         ),
     ];
-    for (template, declaration, read, old_read) in cases {
+    for (template, statements, old_read) in cases {
         let js = compile_template_to_js_with_version(
             template,
             "TestComponent",
             Some(AngularVersion::new(22, 0, 0)),
         );
-        assert!(js.contains(declaration), "expected `{declaration}`, got:\n{js}");
-        assert!(js.contains(read), "expected `{read}`, got:\n{js}");
+        let body = format!("_listener() {{\n      {}\n    }});", statements.join("\n      "));
+        assert!(js.contains(&body), "expected the listener body\n{body}\ngot:\n{js}");
         assert!(!js.contains(old_read), "must not read `{old_read}`, got:\n{js}");
         assert!(
             !js.contains("$safeNavigationMigration"),
