@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { linkAngularPackageSync } from '../index.js'
+import { linkAngularPackageSync, type AngularVersion } from '../index.js'
 import { angularLinkerPlugin } from '../vite-plugin/angular-linker-plugin.js'
 import { angular } from '../vite-plugin/index.js'
 
@@ -332,21 +332,32 @@ describe('linker: angularVersion', () => {
     // Vite hashes optimizer plugin names, not their options, into the deps cache key.
     const optimizerPluginName = (plugin: any) =>
       plugin.config({}, { command: 'serve' }).optimizeDeps.rolldownOptions.plugins[0].name
-    const unset = optimizerPluginName(angularLinkerPlugin())
-    const pinned = optimizerPluginName(
-      angularLinkerPlugin({ angularVersion: { major: 22, minor: 2, patch: 1 } }),
-    )
+    const nameFor = (angularVersion?: AngularVersion) =>
+      optimizerPluginName(angularLinkerPlugin({ angularVersion }))
 
-    expect(unset).toBe('angular-linker')
-    expect(pinned).not.toBe(unset)
+    expect(nameFor()).toBe('angular-linker')
+    expect(nameFor({ major: 22, minor: 2, patch: 1 })).toBe('angular-linker@22.2.1')
+    expect(nameFor({ major: 22, minor: 2, patch: 2 })).toBe('angular-linker@22.2.2')
+    expect(nameFor({ major: 23, minor: 0, patch: 0, prerelease: 'next.1' })).toBe(
+      'angular-linker@23.0.0-next.1',
+    )
+    // An empty prerelease is not a stable release for the linker, so it needs its own key.
+    expect(nameFor({ major: 22, minor: 3, patch: 0, prerelease: '' })).toBe(
+      'angular-linker@22.3.0-',
+    )
   })
 
   it('forwards angular() angularVersion to the linker plugin', async () => {
-    const plugin = angular({ angularVersion: { major: 22, minor: 2, patch: 1 } }).find(
-      (candidate) => candidate.name === '@oxc-angular/vite-linker',
-    ) as any
-    const result = await plugin.transform.handler.call({}, IMG_SRC_COMPONENT, id)
+    const link = async (angularVersion: AngularVersion) => {
+      const plugin = angular({ angularVersion }).find(
+        (candidate) => candidate.name === '@oxc-angular/vite-linker',
+      ) as any
+      return (await plugin.transform.handler.call({}, IMG_SRC_COMPONENT, id))?.code
+    }
 
-    expect(result?.code).toContain('ɵɵproperty("src",ctx.url,i0.ɵɵsanitizeUrl)')
+    expect(await link({ major: 22, minor: 2, patch: 1 })).toContain(
+      'ɵɵproperty("src",ctx.url,i0.ɵɵsanitizeUrl)',
+    )
+    expect(await link({ major: 22, minor: 2, patch: 2 })).toContain('ɵɵproperty("src",ctx.url)')
   })
 })

@@ -112,7 +112,7 @@ export interface AngularLinkerPluginOptions {
 function optimizerPluginName(angularVersion: AngularVersion | undefined): string {
   if (!angularVersion) return 'angular-linker'
   const { major, minor, patch, prerelease } = angularVersion
-  return `angular-linker@${major}.${minor}.${patch}${prerelease ? `-${prerelease}` : ''}`
+  return `angular-linker@${major}.${minor}.${patch}${prerelease != null ? `-${prerelease}` : ''}`
 }
 
 export function angularLinkerPlugin({ angularVersion }: AngularLinkerPluginOptions = {}): Plugin {
