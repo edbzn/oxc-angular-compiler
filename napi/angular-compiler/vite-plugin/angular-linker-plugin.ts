@@ -103,6 +103,18 @@ export interface AngularLinkerPluginOptions {
   angularVersion?: AngularVersion
 }
 
+/**
+ * Name of the dependency optimizer plugin. Vite hashes the names of
+ * `optimizeDeps.rolldownOptions.plugins`, not their options, into the optimizer
+ * cache key, so the version is part of the name: changing `angularVersion`
+ * re-links prebundled deps instead of reusing ones linked for another version.
+ */
+function optimizerPluginName(angularVersion: AngularVersion | undefined): string {
+  if (!angularVersion) return 'angular-linker'
+  const { major, minor, patch, prerelease } = angularVersion
+  return `angular-linker@${major}.${minor}.${patch}${prerelease ? `-${prerelease}` : ''}`
+}
+
 export function angularLinkerPlugin({ angularVersion }: AngularLinkerPluginOptions = {}): Plugin {
   let optimizeDepsExclude: readonly string[] = []
 
@@ -127,7 +139,7 @@ export function angularLinkerPlugin({ angularVersion }: AngularLinkerPluginOptio
             },
             plugins: [
               {
-                name: 'angular-linker',
+                name: optimizerPluginName(angularVersion),
                 load: {
                   filter: {
                     id: /\.[cm]?js$/,

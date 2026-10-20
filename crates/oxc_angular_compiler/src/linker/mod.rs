@@ -2146,8 +2146,9 @@ fn link_component(
         } else if cd.contains("OnPush") {
             // Emitted explicitly rather than left to the runtime default. The TS
             // compiler omits OnPush here, but it ships with the runtime it targets;
-            // this linker does not know the consumer's version and supports back to
-            // v19. Pre-v22 runtimes compute `onPush = changeDetection === OnPush`,
+            // this linker may not know the consumer's version
+            // (`LinkOptions.angular_version` is optional) and supports back to v19.
+            // Pre-v22 runtimes compute `onPush = changeDetection === OnPush`,
             // so an absent field reads as Default there and the component would
             // silently lose OnPush. `0` is correct on both.
             parts.push("changeDetection: 0".to_string());
@@ -2855,10 +2856,11 @@ MyComponent.ɵcmp = i0.ɵɵngDeclareComponent({ minVersion: "14.0.0", version: "
         let result = link(&allocator, code, "test.mjs");
         assert!(result.linked);
         // Emitted explicitly, even though the TS compiler omits OnPush. That
-        // compiler ships with the runtime it targets; this linker does not know
-        // the consumer's version and supports back to v19, where the runtime
-        // computes `onPush = changeDetection === OnPush` and so reads an absent
-        // field as Default. Omitting it would silently drop OnPush there.
+        // compiler ships with the runtime it targets; this linker may not know
+        // the consumer's version (`LinkOptions.angular_version` is optional) and
+        // supports back to v19, where the runtime computes
+        // `onPush = changeDetection === OnPush` and so reads an absent field as
+        // Default. Omitting it would silently drop OnPush there.
         assert!(
             result.code.contains("changeDetection: 0"),
             "ChangeDetectionStrategy.OnPush should be 0, got:\n{}",

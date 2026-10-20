@@ -2948,13 +2948,13 @@ pub fn link_angular_package_sync(
     filename: String,
     options: Option<LinkOptions>,
 ) -> LinkResult {
-    use oxc_angular_compiler::linker::link_with_options;
+    use oxc_angular_compiler::linker::{LinkOptions as RustLinkOptions, link_with_options};
 
     let allocator = Allocator::default();
-    let options = oxc_angular_compiler::linker::LinkOptions {
+    let rust_options = RustLinkOptions {
         angular_version: options.and_then(|o| o.angular_version).map(Into::into),
     };
-    let result = link_with_options(&allocator, &code, &filename, &options);
+    let result = link_with_options(&allocator, &code, &filename, &rust_options);
 
     LinkResult { code: result.code, map: result.map, linked: result.linked }
 }

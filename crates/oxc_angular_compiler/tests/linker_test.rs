@@ -270,6 +270,22 @@ class ImgSrc {
 ImgSrc.ɵdir = i0.ɵɵngDeclareDirective({ minVersion: "14.0.0", version: "21.0.0", type: ImgSrc, isStandalone: true, selector: "img[imgSrc]", host: { properties: { "src": "url" } }, ngImport: i0 });
 "#;
 
+/// A component whose host binding and template both read `item?.label`.
+const SAFE_NAV_HOST_COMPONENT: &str = r#"
+import * as i0 from "@angular/core";
+class Item {
+}
+Item.ɵcmp = i0.ɵɵngDeclareComponent({ minVersion: "14.0.0", version: "21.0.0", type: Item, isStandalone: true, selector: "x-item", host: { properties: { "title": "item?.label" } }, ngImport: i0, template: '<span>{{ item?.label }}</span>' });
+"#;
+
+/// A component whose `@if` block has a single namespaced root element.
+const SVG_BLOCK_ROOT_COMPONENT: &str = r#"
+import * as i0 from "@angular/core";
+class Shape {
+}
+Shape.ɵcmp = i0.ɵɵngDeclareComponent({ minVersion: "14.0.0", version: "21.0.0", type: Shape, isStandalone: true, selector: "x-shape", ngImport: i0, template: '@if (show) { <svg:rect></svg:rect> }' });
+"#;
+
 fn link_for_version(code: &str, version: Option<AngularVersion>) -> String {
     let allocator = Allocator::default();
     let options = LinkOptions { angular_version: version };
@@ -312,17 +328,54 @@ fn test_link_does_not_sanitize_img_video_src_from_22_2_2() {
     assert_eq!(default_link, link_for_version(SRC_BINDINGS_COMPONENT, None));
 }
 
+/// Checks that the application's version reaches the directive host path and switches OXC's
+/// host security schema at 22.2.2.
+/// Angular itself emits `ɵɵsanitizeUrlOrResourceUrl` here (concrete host security contexts,
+/// angular/angular@d06e3748b7, not ported yet), so these expectations change with that port.
 #[test]
 fn test_link_host_src_binding_respects_angular_version() {
     let before = link_for_version(SRC_HOST_DIRECTIVE, Some(AngularVersion::new(22, 2, 1)));
     assert!(
         before.contains(r#"ɵɵdomProperty("src",ctx.url,i0.ɵɵsanitizeUrl)"#),
-        "host img src must be sanitized before 22.2.2:\n{before}"
+        "22.2.1 must reach the directive host path and keep `img|src` in OXC's URL schema:\n{before}"
     );
     let after = link_for_version(SRC_HOST_DIRECTIVE, Some(AngularVersion::new(22, 2, 2)));
     assert!(
         after.contains(r#"ɵɵdomProperty("src",ctx.url)"#),
-        "host img src must not be sanitized from 22.2.2:\n{after}"
+        "22.2.2 must reach the directive host path and drop `img|src` from OXC's URL schema:\n{after}"
+    );
+}
+
+/// Component host bindings follow the application's version (`ɵɵhostProperty` before 20,
+/// `ɵɵdomProperty` from 20) but keep legacy `?.`, matching Angular's linker on a 21.0.0
+/// declaration with `@angular/compiler` 19.2.0 and 22.2.1.
+#[test]
+fn test_link_component_host_respects_angular_version() {
+    let v19 = link_for_version(SAFE_NAV_HOST_COMPONENT, Some(AngularVersion::new(19, 2, 0)));
+    assert!(
+        v19.contains(r#"ɵɵhostProperty("title",((ctx.item == null)? null: ctx.item.label))"#),
+        "19.2.0: component host must use ɵɵhostProperty with legacy `?.`:\n{v19}"
+    );
+    let v22 = link_for_version(SAFE_NAV_HOST_COMPONENT, Some(AngularVersion::new(22, 2, 1)));
+    assert!(
+        v22.contains(r#"ɵɵdomProperty("title",((ctx.item == null)? null: ctx.item.label))"#),
+        "22.2.1: component host must use ɵɵdomProperty with legacy `?.`:\n{v22}"
+    );
+}
+
+/// The application's version reaches template ingest: Angular 22.2.2 strips the namespace
+/// from a control-flow block's root tag (angular/angular@0244a1cb3), earlier versions keep it.
+#[test]
+fn test_link_block_root_tag_respects_angular_version() {
+    let before = link_for_version(SVG_BLOCK_ROOT_COMPONENT, Some(AngularVersion::new(22, 2, 1)));
+    assert!(
+        before.contains(r#"ɵɵconditionalCreate(0,Shape_Conditional_0_Template,1,0,":svg:rect")"#),
+        "22.2.1: block root tag must keep its namespace:\n{before}"
+    );
+    let after = link_for_version(SVG_BLOCK_ROOT_COMPONENT, Some(AngularVersion::new(22, 2, 2)));
+    assert!(
+        after.contains(r#"ɵɵconditionalCreate(0,Shape_Conditional_0_Template,1,0,"rect")"#),
+        "22.2.2: block root tag must drop its namespace:\n{after}"
     );
 }
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 
 import { linkAngularPackageSync } from '../index.js'
 import { angularLinkerPlugin } from '../vite-plugin/angular-linker-plugin.js'
+import { angular } from '../vite-plugin/index.js'
 
 /**
  * Minimal Angular partial declaration fixtures that simulate the structure
@@ -325,5 +326,27 @@ describe('linker: angularVersion', () => {
     )
 
     expect(code).toContain('ɵɵproperty("src",ctx.url,i0.ɵɵsanitizeUrl)')
+  })
+
+  it('keys the dependency optimizer cache on angularVersion', () => {
+    // Vite hashes optimizer plugin names, not their options, into the deps cache key.
+    const optimizerPluginName = (plugin: any) =>
+      plugin.config({}, { command: 'serve' }).optimizeDeps.rolldownOptions.plugins[0].name
+    const unset = optimizerPluginName(angularLinkerPlugin())
+    const pinned = optimizerPluginName(
+      angularLinkerPlugin({ angularVersion: { major: 22, minor: 2, patch: 1 } }),
+    )
+
+    expect(unset).toBe('angular-linker')
+    expect(pinned).not.toBe(unset)
+  })
+
+  it('forwards angular() angularVersion to the linker plugin', async () => {
+    const plugin = angular({ angularVersion: { major: 22, minor: 2, patch: 1 } }).find(
+      (candidate) => candidate.name === '@oxc-angular/vite-linker',
+    ) as any
+    const result = await plugin.transform.handler.call({}, IMG_SRC_COMPONENT, id)
+
+    expect(result?.code).toContain('ɵɵproperty("src",ctx.url,i0.ɵɵsanitizeUrl)')
   })
 })

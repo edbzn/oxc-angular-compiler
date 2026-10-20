@@ -6307,8 +6307,9 @@ pub fn compile_host_bindings_for_linker(
         selector,
         pool_starting_index,
         angular_version,
-        // `?.` semantics follow the declaration's own `version` in Angular's linker, not
-        // the application's, so `angular_version` must not switch them: keep legacy.
+        // Angular's linker uses native `?.` for declarations at version 22+ (and the
+        // placeholder), which is not modeled here yet: keep legacy, and never let the
+        // application's `angular_version` switch it.
         Some(true),
     )?;
 
@@ -6434,8 +6435,9 @@ pub fn compile_template_for_linker<'a>(
         all_deferrable_deps_fn: None,
         pool_starting_index: 0,
         angular_version,
-        // `?.` semantics follow the declaration's own `version` in Angular's linker, not
-        // the application's, so `angular_version` must not switch them: keep legacy.
+        // Angular's linker uses native `?.` for declarations at version 22+ (and the
+        // placeholder), which is not modeled here yet: keep legacy, and never let the
+        // application's `angular_version` switch it.
         legacy_optional_chaining: Some(true),
     };
 

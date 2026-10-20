@@ -97,6 +97,8 @@ export interface PluginOptions {
    * uses `ɵɵtemplate` for `@if`/`@switch` blocks, while Angular 20+ uses
    * `ɵɵconditionalCreate`/`ɵɵconditionalBranchCreate`.
    *
+   * Also used when linking partially compiled libraries (`ɵɵngDeclare*`).
+   *
    * When not set, assumes latest Angular version (v20+ behavior).
    *
    * @example
