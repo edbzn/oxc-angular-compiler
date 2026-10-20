@@ -2342,35 +2342,103 @@ fn test_safe_navigation_migration_ignores_qualified_call() {
 #[test]
 fn test_safe_navigation_migration_in_listener_reads_template_locals() {
     // Inside a listener, the wrapped expression must resolve template locals
-    // (`@for` items, `@if ... as` aliases) to the restored-view variables, like
-    // any other listener expression, instead of falling back to `ctx.<name>`.
-    let js = compile_template_to_js_with_version(
-        r#"@for (option of options; track $index) {
+    // (`@for` items, `@if ... as` aliases, `let-` variables, `#ref`s, `@let`s) to
+    // the restored-view variables, like any other listener expression, instead of
+    // falling back to `ctx.<name>`.
+    // (template, declaration of the local, read inside the wrapper, old context read)
+    let cases = [
+        (
+            r#"@for (option of options; track $index) {
   <button (click)="pick($safeNavigationMigration(option?.value))"></button>
-}
-@if (user; as u) {
+}"#,
+            "const option_r2 = i0.ɵɵrestoreView(_r1).$implicit;",
+            "ctx_r2.pick(((option_r2 == null)? null: option_r2.value))",
+            "ctx.option.value",
+        ),
+        (
+            r#"@if (user; as u) {
   <button (click)="save($safeNavigationMigration(u?.id))"></button>
 }"#,
-        "TestComponent",
-        Some(AngularVersion::new(22, 0, 0)),
-    );
-    assert!(
-        !js.contains("ctx.option ==") && !js.contains("ctx.option.value"),
-        "`option` must not be read from the context, got:\n{js}"
-    );
-    assert!(
-        !js.contains("ctx.u ==") && !js.contains("ctx.u.id"),
-        "`u` must not be read from the context, got:\n{js}"
-    );
-    assert!(
-        js.contains(".pick(((option_r") && js.contains("== null)? null: option_r"),
-        "`option` must be read from the restored view with legacy null semantics, got:\n{js}"
-    );
-    assert!(
-        js.contains(".save(((u_r") && js.contains("== null)? null: u_r"),
-        "`u` must be read from the restored view with legacy null semantics, got:\n{js}"
-    );
-    assert!(!js.contains("$safeNavigationMigration"), "the wrapper must be stripped, got:\n{js}");
+            "const u_r2 = i0.ɵɵrestoreView(_r1);",
+            "ctx_r2.save(((u_r2 == null)? null: u_r2.id))",
+            "ctx.u.id",
+        ),
+        (
+            r#"<ng-template let-item>
+  <button (click)="pick($safeNavigationMigration(item?.value))"></button>
+</ng-template>"#,
+            "const item_r2 = i0.ɵɵrestoreView(_r1).$implicit;",
+            "ctx_r2.pick(((item_r2 == null)? null: item_r2.value))",
+            "ctx.item.value",
+        ),
+        (
+            r#"<input #box />
+<button (click)="pick($safeNavigationMigration(box?.value))"></button>"#,
+            "const box_r2 = i0.ɵɵreference(1);",
+            "ctx.pick(((box_r2 == null)? null: box_r2.value))",
+            "ctx.box.value",
+        ),
+        (
+            r#"@let v = user?.profile;
+<button (click)="pick($safeNavigationMigration(v?.name))"></button>"#,
+            "const v_r2 = i0.ɵɵreadContextLet(0);",
+            "ctx.pick(((v_r2 == null)? null: v_r2.name))",
+            "ctx.v.name",
+        ),
+    ];
+    for (template, declaration, read, old_read) in cases {
+        let js = compile_template_to_js_with_version(
+            template,
+            "TestComponent",
+            Some(AngularVersion::new(22, 0, 0)),
+        );
+        assert!(js.contains(declaration), "expected `{declaration}`, got:\n{js}");
+        assert!(js.contains(read), "expected `{read}`, got:\n{js}");
+        assert!(!js.contains(old_read), "must not read `{old_read}`, got:\n{js}");
+        assert!(
+            !js.contains("$safeNavigationMigration"),
+            "the wrapper must be stripped, got:\n{js}"
+        );
+    }
+}
+
+#[test]
+fn test_safe_navigation_migration_in_arrow_function_reads_template_locals() {
+    // A template arrow function is hoisted into a module-level factory that gets
+    // the view as a parameter. The wrapped expression in its body must restore
+    // the local from that view (and return through `ɵɵresetView`) instead of
+    // reading a free variable that only exists inside the template function.
+    // (template, declaration of the local, return of the factory)
+    let cases = [
+        (
+            r#"@for (option of options; track $index) {
+  <div [title]="fmt(() => $safeNavigationMigration(option?.value))"></div>
+}"#,
+            "const option_r1 = i0.ɵɵrestoreView(view).$implicit;",
+            "return i0.ɵɵresetView(((option_r1 == null)? null: option_r1.value));",
+        ),
+        (
+            r#"@if (user; as u) {
+  <div [title]="fmt(() => $safeNavigationMigration(u?.id))"></div>
+}"#,
+            "const u_r1 = i0.ɵɵrestoreView(view);",
+            "return i0.ɵɵresetView(((u_r1 == null)? null: u_r1.id));",
+        ),
+    ];
+    for (template, declaration, ret) in cases {
+        let js = compile_template_to_js_with_version(
+            template,
+            "TestComponent",
+            Some(AngularVersion::new(22, 0, 0)),
+        );
+        let factory =
+            format!("const arrowFn0 = (ctx,view) =>() =>{{\n  {declaration}\n  {ret}\n}};");
+        assert!(js.contains(&factory), "expected the arrow factory\n{factory}\ngot:\n{js}");
+        assert!(
+            !js.contains("$safeNavigationMigration"),
+            "the wrapper must be stripped, got:\n{js}"
+        );
+    }
 }
 
 // ============================================================================

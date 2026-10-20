@@ -877,9 +877,9 @@ fn resolve_expression<'a>(
             );
         }
 
-        // `$safeNavigationMigration(...)` wrapper - resolve the wrapped expression. A
-        // listener's `handler_expression` is resolved through this function directly
-        // rather than the generic visitor, so the wrapper must be descended here.
+        // `$safeNavigationMigration(...)` wrapper - resolve the wrapped expression. A listener's
+        // `handler_expression` and hoisted arrow-function bodies reach this function directly,
+        // not through the generic visitor, so the wrapper must be descended here.
         IrExpression::SafeNavigationMigration(migration) => {
             resolve_expression(
                 migration.expr.as_mut(),
