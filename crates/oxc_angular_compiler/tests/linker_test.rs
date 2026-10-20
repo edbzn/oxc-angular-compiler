@@ -328,21 +328,17 @@ fn test_link_does_not_sanitize_img_video_src_from_22_2_2() {
     assert_eq!(default_link, link_for_version(SRC_BINDINGS_COMPONENT, None));
 }
 
-/// Checks that the application's version reaches the directive host path and switches OXC's
-/// host security schema at 22.2.2.
-/// Angular itself emits `ɵɵsanitizeUrlOrResourceUrl` here (concrete host security contexts,
-/// angular/angular@d06e3748b7, not ported yet), so these expectations change with that port.
+/// Checks that the application's version reaches the directive host path: before 22.2.2,
+/// `img|src` is in the URL schema, so the host binding must be sanitized.
+/// Only "sanitized" is asserted, not which sanitizer, and 22.2.2 is not asserted at all:
+/// Angular emits `ɵɵsanitizeUrlOrResourceUrl` here for both versions (concrete host security
+/// contexts, angular/angular@d06e3748b7), which OXC does not port yet.
 #[test]
 fn test_link_host_src_binding_respects_angular_version() {
-    let before = link_for_version(SRC_HOST_DIRECTIVE, Some(AngularVersion::new(22, 2, 1)));
+    let code = link_for_version(SRC_HOST_DIRECTIVE, Some(AngularVersion::new(22, 2, 1)));
     assert!(
-        before.contains(r#"ɵɵdomProperty("src",ctx.url,i0.ɵɵsanitizeUrl)"#),
-        "22.2.1 must reach the directive host path and keep `img|src` in OXC's URL schema:\n{before}"
-    );
-    let after = link_for_version(SRC_HOST_DIRECTIVE, Some(AngularVersion::new(22, 2, 2)));
-    assert!(
-        after.contains(r#"ɵɵdomProperty("src",ctx.url)"#),
-        "22.2.2 must reach the directive host path and drop `img|src` from OXC's URL schema:\n{after}"
+        code.contains(r#"ɵɵdomProperty("src",ctx.url,i0.ɵɵsanitize"#),
+        "22.2.1 must reach the directive host path and sanitize `img|src`:\n{code}"
     );
 }
 
