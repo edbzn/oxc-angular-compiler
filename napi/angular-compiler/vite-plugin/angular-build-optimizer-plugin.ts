@@ -1,5 +1,51 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+
 import { optimizeAngularPackage } from '#binding'
-import type { Plugin } from 'vite'
+import { createFilter, type Plugin } from 'vite'
+
+type SideEffectsFilter = (id: string) => boolean
+
+/**
+ * Resolves a file's `sideEffects` from its nearest `package.json`, as Vite's resolver does.
+ */
+function createSideEffectsResolver(): (id: string) => boolean {
+  const cache = new Map<string, SideEffectsFilter>()
+
+  function filterForDir(dir: string): SideEffectsFilter {
+    let filter = cache.get(dir)
+    if (filter) {
+      return filter
+    }
+    const pkgPath = join(dir, 'package.json')
+    if (existsSync(pkgPath)) {
+      const { sideEffects } = JSON.parse(readFileSync(pkgPath, 'utf-8'))
+      if (typeof sideEffects === 'boolean') {
+        filter = () => sideEffects
+      } else if (Array.isArray(sideEffects)) {
+        filter =
+          sideEffects.length === 0
+            ? () => false
+            : createFilter(
+                sideEffects.map((pattern: string) =>
+                  pattern.includes('/') ? pattern : `**/${pattern}`,
+                ),
+                null,
+                { resolve: dir },
+              )
+      } else {
+        filter = () => true
+      }
+    } else {
+      const parent = dirname(dir)
+      filter = parent === dir ? () => true : filterForDir(parent)
+    }
+    cache.set(dir, filter)
+    return filter
+  }
+
+  return (id) => filterForDir(dirname(id))(id)
+}
 
 /**
  * Build optimizer plugin for Angular production builds.
@@ -11,7 +57,7 @@ import type { Plugin } from 'vite'
  * The optimizer enables better tree-shaking by:
  * - Removing Angular metadata calls (ɵsetClassMetadata, etc.)
  * - Wrapping static fields in pure IIFEs
- * - Adding /* @__PURE__ *\/ annotations to top-level calls
+ * - Adding /* @__PURE__ *\/ annotations to top-level calls of side-effect-free `@angular/*` packages
  * - Optimizing TypeScript enum patterns
  */
 export function buildOptimizerPlugin({
@@ -24,6 +70,7 @@ export function buildOptimizerPlugin({
   thirdPartySourcemaps: boolean
 }): Plugin {
   let isProd = false
+  const hasSideEffects = createSideEffectsResolver()
 
   return {
     name: '@oxc-angular/vite-optimizer',
@@ -77,11 +124,13 @@ export function buildOptimizerPlugin({
         }
 
         try {
+          // Like the Angular CLI, only trust side-effect-free `@angular/*` packages with top-level pure annotations.
+          const markPure = /[\\/]node_modules[\\/]@angular[\\/]/.test(id) && !hasSideEffects(id)
           const result = await optimizeAngularPackage(code, id, {
             sourcemap: sourcemap && thirdPartySourcemaps,
             elideMetadata: true,
             wrapStaticMembers: true,
-            markPure: true,
+            markPure,
             adjustEnums: true,
           })
 
