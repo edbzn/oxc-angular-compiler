@@ -55,6 +55,7 @@ beforeAll(() => {
   writePackage('zone.js', undefined, { 'fesm2015/zone.js': ZONE })
   writePackage('@angular/core', false, { 'fesm2022/core.mjs': TOKEN })
   writePackage('@angular/build', undefined, { 'fesm2022/build.mjs': TOKEN })
+  writePackage('@angular/upgrade', true, { 'fesm2022/upgrade.mjs': TOKEN })
   writePackage('@angular/compiler', ['./fesm2022/compiler.mjs'], {
     'fesm2022/compiler.mjs': PUBLISH_FACADE,
     'fesm2022/other.mjs': TOKEN,
@@ -138,6 +139,12 @@ describe('build optimizer: package sideEffects', () => {
 
   it('keeps top-level calls of an @angular package without a sideEffects field', async () => {
     const code = await optimize('@angular/build/fesm2022/build.mjs')
+
+    expect(code).not.toContain('__PURE__')
+  })
+
+  it('keeps top-level calls of an @angular package with sideEffects: true', async () => {
+    const code = await optimize('@angular/upgrade/fesm2022/upgrade.mjs')
 
     expect(code).not.toContain('__PURE__')
   })

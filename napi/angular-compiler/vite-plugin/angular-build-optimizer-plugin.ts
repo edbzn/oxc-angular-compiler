@@ -66,7 +66,8 @@ function createSideEffectsResolver(): SideEffectsFilter {
  * The optimizer enables better tree-shaking by:
  * - Removing Angular metadata calls (ɵsetClassMetadata, etc.)
  * - Wrapping static fields in pure IIFEs
- * - Adding /* @__PURE__ *\/ annotations to top-level calls of side-effect-free `@angular/*` packages
+ * - Adding /* @__PURE__ *\/ annotations to top-level calls of side-effect-free
+ *   `@angular/*` packages
  * - Optimizing TypeScript enum patterns
  */
 export function buildOptimizerPlugin({
@@ -133,7 +134,8 @@ export function buildOptimizerPlugin({
         }
 
         try {
-          // Like the Angular CLI, only trust side-effect-free `@angular/*` packages with top-level pure annotations.
+          // Like the Angular CLI, only add top-level pure annotations to `@angular/*` packages
+          // that declare themselves side-effect-free.
           const markPure = /[\\/]node_modules[\\/]@angular[\\/]/.test(id) && !hasSideEffects(id)
           const result = await optimizeAngularPackage(code, id, {
             sourcemap: sourcemap && thirdPartySourcemaps,
