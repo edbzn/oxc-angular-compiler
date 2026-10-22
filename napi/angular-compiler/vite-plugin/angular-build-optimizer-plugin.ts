@@ -7,9 +7,10 @@ import { createFilter, type Plugin } from 'vite'
 type SideEffectsFilter = (id: string) => boolean
 
 /**
- * Resolves a file's `sideEffects` from its nearest `package.json`, as Vite's resolver does.
+ * Reads `sideEffects` from a file's nearest `package.json` (as esbuild does for the Angular CLI)
+ * and matches it the way Vite's resolver does.
  */
-function createSideEffectsResolver(): (id: string) => boolean {
+function createSideEffectsResolver(): SideEffectsFilter {
   const cache = new Map<string, SideEffectsFilter>()
 
   function filterForDir(dir: string): SideEffectsFilter {
@@ -19,15 +20,22 @@ function createSideEffectsResolver(): (id: string) => boolean {
     }
     const pkgPath = join(dir, 'package.json')
     if (existsSync(pkgPath)) {
-      const { sideEffects } = JSON.parse(readFileSync(pkgPath, 'utf-8'))
+      let sideEffects: unknown
+      try {
+        const raw = readFileSync(pkgPath, 'utf-8')
+        sideEffects = JSON.parse(raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw).sideEffects
+      } catch {
+        // A package.json we cannot read is treated as having side effects.
+      }
       if (typeof sideEffects === 'boolean') {
         filter = () => sideEffects
       } else if (Array.isArray(sideEffects)) {
+        const patterns = sideEffects.filter((pattern) => typeof pattern === 'string')
         filter =
-          sideEffects.length === 0
+          patterns.length === 0
             ? () => false
             : createFilter(
-                sideEffects.map((pattern: string) =>
+                patterns.map((pattern: string) =>
                   pattern.includes('/') ? pattern : `**/${pattern}`,
                 ),
                 null,
