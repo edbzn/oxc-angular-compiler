@@ -7,8 +7,9 @@ import { createFilter, type Plugin } from 'vite'
 type SideEffectsFilter = (id: string) => boolean
 
 /**
- * Reads `sideEffects` from a file's nearest `package.json` (as esbuild does for the Angular CLI)
- * and matches it the way Vite's resolver does.
+ * Reads `sideEffects` from a file's nearest `package.json` and matches it like esbuild does for
+ * the Angular CLI: a value that is not a boolean or an array counts as having side effects, and a
+ * pattern with a slash only matches from the package root. Vite 8 builds (rolldown) differ on both.
  */
 function createSideEffectsResolver(): SideEffectsFilter {
   const cache = new Map<string, SideEffectsFilter>()

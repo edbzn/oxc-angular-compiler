@@ -61,7 +61,10 @@ beforeAll(() => {
   })
   writePackage('@angular/localize', ['*.mjs'], { 'fesm2022/localize.mjs': PUBLISH_FACADE })
   writePackage('@angular/animations', [], { 'fesm2022/animations.mjs': TOKEN })
-  writePackage('@angular/mixed', [false, './fesm2022/kept.mjs'], { 'fesm2022/mixed.mjs': TOKEN })
+  writePackage('@angular/mixed', [false, './fesm2022/kept.mjs'], {
+    'fesm2022/mixed.mjs': TOKEN,
+    'fesm2022/kept.mjs': PUBLISH_FACADE,
+  })
   writePackage('@ngrx/store', false, { 'fesm2022/ngrx-store.mjs': TOKEN })
   writePackage('side-effectful', true, { 'fesm2022/side-effectful.mjs': STATIC_MEMBERS })
   writePackage(
@@ -143,6 +146,7 @@ describe('build optimizer: package sideEffects', () => {
     const code = await optimize('@angular/mixed/fesm2022/mixed.mjs')
 
     expect(code).toContain("/* @__PURE__ */ new InjectionToken('TOKEN')")
+    expect(await optimize('@angular/mixed/fesm2022/kept.mjs')).not.toContain('__PURE__')
   })
 
   it('reads a package.json that starts with a BOM', async () => {
