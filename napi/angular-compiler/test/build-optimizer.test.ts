@@ -9,6 +9,7 @@ import { buildOptimizerPlugin } from '../vite-plugin/angular-build-optimizer-plu
 
 let root: string
 
+// `packageJson`, when given, is written as is and `sideEffects` is not used.
 function writePackage(
   name: string,
   sideEffects: unknown,
@@ -70,13 +71,13 @@ beforeAll(() => {
   writePackage('side-effectful', true, { 'fesm2022/side-effectful.mjs': STATIC_MEMBERS })
   writePackage(
     '@angular/bom',
-    false,
+    undefined,
     { 'fesm2022/bom.mjs': TOKEN },
     `\uFEFF${JSON.stringify({ sideEffects: false })}`,
   )
   writePackage(
     '@angular/broken',
-    false,
+    undefined,
     { 'fesm2022/broken.mjs': TOKEN + STATIC_MEMBERS },
     '{ "sideEffects": false, }',
   )
