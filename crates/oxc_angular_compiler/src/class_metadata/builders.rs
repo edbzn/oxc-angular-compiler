@@ -5,9 +5,9 @@
 
 use oxc_allocator::{Allocator, Box, Vec as AllocVec};
 use oxc_ast::ast::{
-    BindingPattern, Class, ClassElement, Declaration, Decorator, Expression, FormalParameter,
-    MethodDefinitionKind, ObjectPropertyKind, PropertyKey, Statement, TSNamespaceDeclarationBody,
-    TSType, TSTypeName, VariableDeclaration,
+    BindingPattern, ChainElement, Class, ClassElement, Declaration, Decorator, Expression,
+    FormalParameter, MethodDefinitionKind, ObjectPropertyKind, PropertyKey, Statement,
+    TSNamespaceDeclarationBody, TSType, TSTypeName, VariableDeclaration,
 };
 use oxc_span::GetSpan;
 use oxc_str::Ident;
@@ -15,12 +15,12 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::component::{ImportMap, NamespaceRegistry, R3DependencyMetadata};
 use crate::directive::{
-    QUERY_APIS, R3InputMetadata, StringConsts, initializer_api_call, resolve_template_literal,
+    QUERY_APIS, R3InputMetadata, StringConsts, evaluate_string_value, initializer_api_call,
     try_parse_signal_input, try_parse_signal_model, try_parse_signal_output,
 };
 use crate::output::ast::{
-    ArrowFunctionBody, ArrowFunctionExpr, LiteralArrayExpr, LiteralExpr, LiteralMapEntry,
-    LiteralMapExpr, LiteralValue, OutputExpression, ReadPropExpr, ReadVarExpr,
+    ArrowFunctionBody, ArrowFunctionExpr, InvokeFunctionExpr, LiteralArrayExpr, LiteralExpr,
+    LiteralMapEntry, LiteralMapExpr, LiteralValue, OutputExpression, ReadPropExpr, ReadVarExpr,
 };
 use crate::output::oxc_converter::{
     convert_oxc_expression, convert_plain_properties, is_plain_property, make_raw_source,
@@ -55,11 +55,11 @@ use crate::util::lone_surrogate::js_str_to_ident;
 /// upstream's `if (dec.name !== 'Component') return dec;`.
 pub fn build_decorator_metadata_array<'a>(
     allocator: &'a Allocator,
-    decorators: &[&Decorator<'a>],
+    decorators: &[&'a Decorator<'a>],
     source_text: Option<&'a str>,
     inlined_template: Option<&'a str>,
     inlined_styles: Option<&[Ident<'a>]>,
-    component_decorator: Option<&Decorator<'a>>,
+    component_decorator: Option<&'a Decorator<'a>>,
     consts: Option<&StringConsts<'a>>,
 ) -> OutputExpression<'a> {
     // Whether `transformDecoratorResources` rewrites the `args` of decorators
@@ -339,7 +339,7 @@ fn inline_component_resources<'a>(
 fn drop_unresolvable_template_literal_fields<'a>(
     allocator: &'a Allocator,
     converted: &mut OutputExpression<'a>,
-    source: &Expression<'a>,
+    source: &'a Expression<'a>,
     consts: &StringConsts<'a>,
 ) {
     let Expression::ObjectExpression(obj) = source else {
@@ -360,7 +360,10 @@ fn drop_unresolvable_template_literal_fields<'a>(
         if tpl.expressions.is_empty() {
             continue;
         }
-        if resolve_template_literal(allocator, tpl, consts).is_some() {
+        // Read the value the way the compile path reads `template`: the
+        // const folder first, then the partial evaluator (`${WIDTH}px` with
+        // `const WIDTH = 150`, `${A + B}`, an imported const, ...).
+        if evaluate_string_value(allocator, &prop.value, consts).is_some() {
             continue; // Resolvable — leave the converted value as-is.
         }
         if let Some(key) = get_property_key_name(&prop.key) {
@@ -395,7 +398,7 @@ fn build_template_entry<'a>(allocator: &'a Allocator, content: &'a str) -> Liter
 /// [`build_ctor_params_metadata_in`] recognises only Angular's, like ngtsc.
 pub fn build_ctor_params_metadata<'a>(
     allocator: &'a Allocator,
-    class: &Class<'a>,
+    class: &'a Class<'a>,
     constructor_deps: Option<&[R3DependencyMetadata<'a>]>,
     namespace_registry: &mut NamespaceRegistry<'a>,
     import_map: &ImportMap<'a>,
@@ -426,7 +429,7 @@ pub fn build_ctor_params_metadata<'a>(
 /// `decorators: []`.
 pub fn build_ctor_params_metadata_in<'a>(
     allocator: &'a Allocator,
-    class: &Class<'a>,
+    class: &'a Class<'a>,
     constructor_deps: Option<&[R3DependencyMetadata<'a>]>,
     namespace_registry: &mut NamespaceRegistry<'a>,
     import_map: &ImportMap<'a>,
@@ -537,7 +540,7 @@ pub fn build_ctor_params_metadata_in<'a>(
 /// only Angular's, like ngtsc.
 pub fn build_prop_decorators_metadata<'a>(
     allocator: &'a Allocator,
-    class: &Class<'a>,
+    class: &'a Class<'a>,
     source_text: Option<&'a str>,
     namespace_registry: &mut NamespaceRegistry<'a>,
 ) -> Option<OutputExpression<'a>> {
@@ -554,7 +557,7 @@ pub fn build_prop_decorators_metadata<'a>(
 /// same way (`outputFromObservable` from `@angular/core/rxjs-interop`).
 pub fn build_prop_decorators_metadata_in<'a>(
     allocator: &'a Allocator,
-    class: &Class<'a>,
+    class: &'a Class<'a>,
     source_text: Option<&'a str>,
     namespace_registry: &mut NamespaceRegistry<'a>,
     consts: Option<&StringConsts<'a>>,
@@ -781,7 +784,27 @@ fn build_signal_query_decorator<'a>(
     // query's `WrappedNodeExpr` fallback, only the raw source can stand in.
     let first = call.arguments.first()?;
     let predicate = match first.as_expression() {
-        Some(expr) => convert_oxc_expression(allocator, expr, source_text)?,
+        // Like ngtsc's `memberMetadataFromSignalQuery`, a predicate other than a string or a
+        // call (a class) is wrapped in `forwardRef(() => <predicate>)`: `setClassMetadata` runs
+        // as soon as the class is defined, unlike the query initializer, so a class declared
+        // later in the file would be read before it is initialized.
+        Some(expr) => {
+            let predicate = convert_oxc_expression(allocator, expr, source_text)?;
+            let string_or_call = match expr {
+                Expression::StringLiteral(_) | Expression::CallExpression(_) => true,
+                Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+                // `a?.b()` is a call too, as `ts.isCallExpression` sees it
+                Expression::ChainExpression(chain) => {
+                    matches!(chain.expression, ChainElement::CallExpression(_))
+                }
+                _ => false,
+            };
+            if string_or_call {
+                predicate
+            } else {
+                forward_ref(allocator, namespace_registry, predicate)
+            }
+        }
         None => make_raw_source(allocator, source_text, first.span())?,
     };
     let mut args = AllocVec::new_in(&allocator);
@@ -810,6 +833,61 @@ fn build_signal_query_decorator<'a>(
     Some(build_core_decorator(allocator, namespace_registry, decorator_name, args))
 }
 
+/// `i0.forwardRef(() => <expression>)`.
+fn forward_ref<'a>(
+    allocator: &'a Allocator,
+    namespace_registry: &mut NamespaceRegistry<'a>,
+    expression: OutputExpression<'a>,
+) -> OutputExpression<'a> {
+    let arrow = OutputExpression::ArrowFunction(Box::new_in(
+        ArrowFunctionExpr {
+            params: AllocVec::new_in(&allocator),
+            body: ArrowFunctionBody::Expression(Box::new_in(expression, &allocator)),
+            source_span: None,
+        },
+        &allocator,
+    ));
+    let mut args = AllocVec::new_in(&allocator);
+    args.push(arrow);
+    OutputExpression::InvokeFunction(Box::new_in(
+        InvokeFunctionExpr {
+            fn_expr: Box::new_in(
+                core_member(allocator, namespace_registry, "forwardRef"),
+                &allocator,
+            ),
+            args,
+            pure: false,
+            optional: false,
+            source_span: None,
+        },
+        &allocator,
+    ))
+}
+
+/// `i0.<name>`: a member of the `@angular/core` namespace import.
+fn core_member<'a>(
+    allocator: &'a Allocator,
+    namespace_registry: &mut NamespaceRegistry<'a>,
+    name: &'static str,
+) -> OutputExpression<'a> {
+    let core_namespace = namespace_registry.get_or_assign(&Ident::from(crate::r3::CORE));
+    OutputExpression::ReadProp(Box::new_in(
+        ReadPropExpr {
+            receiver: Box::new_in(
+                OutputExpression::ReadVar(Box::new_in(
+                    ReadVarExpr { name: core_namespace, source_span: None },
+                    &allocator,
+                )),
+                &allocator,
+            ),
+            name: Ident::from(name),
+            optional: false,
+            source_span: None,
+        },
+        &allocator,
+    ))
+}
+
 /// Build `{ type: i0.<name>, args: ["<arg>"] }` for a decorator taking a single string.
 fn build_core_decorator_with_string_arg<'a>(
     allocator: &'a Allocator,
@@ -832,22 +910,7 @@ fn build_core_decorator<'a>(
     decorator_name: &'static str,
     args: AllocVec<'a, OutputExpression<'a>>,
 ) -> OutputExpression<'a> {
-    let core_namespace = namespace_registry.get_or_assign(&Ident::from(crate::r3::CORE));
-    let type_expr = OutputExpression::ReadProp(Box::new_in(
-        ReadPropExpr {
-            receiver: Box::new_in(
-                OutputExpression::ReadVar(Box::new_in(
-                    ReadVarExpr { name: core_namespace, source_span: None },
-                    &allocator,
-                )),
-                &allocator,
-            ),
-            name: Ident::from(decorator_name),
-            optional: false,
-            source_span: None,
-        },
-        &allocator,
-    ));
+    let type_expr = core_member(allocator, namespace_registry, decorator_name);
 
     let mut entries = AllocVec::new_in(&allocator);
     entries.push(LiteralMapEntry::new(Ident::from("type"), type_expr, false));

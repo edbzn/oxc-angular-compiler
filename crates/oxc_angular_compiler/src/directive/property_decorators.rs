@@ -452,7 +452,7 @@ fn extract_boolean_value(expr: &Expression<'_>) -> Option<bool> {
 /// `forwardRef` (a local function, one from another module, `util.forwardRef`)
 /// is kept as written. Without the file's imports (`consts` is `None`), a bare
 /// `forwardRef` is matched by name.
-fn try_unwrap_forward_ref<'a>(
+pub fn try_unwrap_forward_ref<'a>(
     expr: &'a Expression<'a>,
     consts: Option<&super::StringConsts<'_>>,
 ) -> Option<&'a Expression<'a>> {
@@ -1812,19 +1812,21 @@ pub(crate) fn extract_host_bindings_in<'a>(
             continue;
         }
 
-        let Some(decorator) = find_decorator_by_name(decorators, "HostBinding", consts) else {
-            continue;
-        };
-
         let Some(class_property_name) = property_name else {
             continue;
         };
 
-        // Extract the host property name from the decorator argument
-        let host_property_name =
-            extract_host_binding_name(decorator).unwrap_or_else(|| class_property_name.clone());
+        // Every @HostBinding of the member is a binding: ngtsc compiles
+        // `@HostBinding('class.a') @HostBinding('b') get x()` to two.
+        for decorator in
+            decorators.iter().filter(|d| angular_member_decorator(d, consts) == Some("HostBinding"))
+        {
+            // Extract the host property name from the decorator argument
+            let host_property_name =
+                extract_host_binding_name(decorator).unwrap_or_else(|| class_property_name.clone());
 
-        bindings.push((host_property_name, class_property_name));
+            bindings.push((host_property_name, class_property_name.clone()));
+        }
     }
 
     bindings
@@ -1904,21 +1906,24 @@ pub(crate) fn extract_host_listeners_in<'a>(
             continue;
         }
 
-        let Some(decorator) = find_decorator_by_name(decorators, "HostListener", consts) else {
-            continue;
-        };
-
         let Some(method_name) = property_name else {
             continue;
         };
 
-        let (event_name, args) = parse_host_listener_config(allocator, decorator);
+        // Every @HostListener of the member is a listener: ngtsc compiles
+        // `@HostListener('click') @HostListener('pointerdown') m() {}` to two.
+        for decorator in decorators
+            .iter()
+            .filter(|d| angular_member_decorator(d, consts) == Some("HostListener"))
+        {
+            let (event_name, args) = parse_host_listener_config(allocator, decorator);
 
-        let Some(event_name) = event_name else {
-            continue;
-        };
+            let Some(event_name) = event_name else {
+                continue;
+            };
 
-        listeners.push((event_name, method_name, args));
+            listeners.push((event_name, method_name.clone(), args));
+        }
     }
 
     listeners
@@ -1935,28 +1940,40 @@ pub(crate) fn lone_surrogate_host_error<'a>(
     consts: &super::StringConsts<'a>,
 ) -> Option<(String, Span)> {
     // The members `extract_host_bindings_in` / `extract_host_listeners_in`
-    // compile, with their decorator's call.
+    // compile, with the call of each of their decorators.
     let members = |name: &'static str| {
-        class.body.body.iter().filter_map(move |element| {
-            let (decorators, key, is_static) = match element {
-                ClassElement::PropertyDefinition(prop) => {
-                    (&prop.decorators, &prop.key, prop.r#static)
+        class
+            .body
+            .body
+            .iter()
+            .filter_map(move |element| {
+                let (decorators, key, is_static) = match element {
+                    ClassElement::PropertyDefinition(prop) => {
+                        (&prop.decorators, &prop.key, prop.r#static)
+                    }
+                    ClassElement::MethodDefinition(method) => {
+                        (&method.decorators, &method.key, method.r#static)
+                    }
+                    ClassElement::AccessorProperty(prop) => {
+                        (&prop.decorators, &prop.key, prop.r#static)
+                    }
+                    _ => return None,
+                };
+                if is_static || get_property_key_name(key).is_none() {
+                    return None;
                 }
-                ClassElement::MethodDefinition(method) => {
-                    (&method.decorators, &method.key, method.r#static)
-                }
-                ClassElement::AccessorProperty(prop) => {
-                    (&prop.decorators, &prop.key, prop.r#static)
-                }
-                _ => return None,
-            };
-            if is_static || get_property_key_name(key).is_none() {
-                return None;
-            }
-            let decorator = find_decorator_by_name(decorators, name, Some(consts))?;
-            let Expression::CallExpression(call) = &decorator.expression else { return None };
-            Some((decorator, call))
-        })
+                // Every stacked decorator is compiled, so every one is checked
+                Some(decorators.iter().filter_map(move |decorator| {
+                    if angular_member_decorator(decorator, Some(consts)) != Some(name) {
+                        return None;
+                    }
+                    let Expression::CallExpression(call) = &decorator.expression else {
+                        return None;
+                    };
+                    Some((decorator, call))
+                }))
+            })
+            .flatten()
     };
     let suffix = Value::Dynamic.wrong_type_suffix();
     let is_lone = |arg: &Argument<'_>| arg.as_expression().is_some_and(is_lone_surrogate_literal);
